@@ -1,0 +1,82 @@
+const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
+const fs = require('fs');
+const path = require('path');
+
+const pointsFile = path.join(__dirname, '../points.json');
+
+function getPoints() {
+    if (fs.existsSync(pointsFile)) {
+        return JSON.parse(fs.readFileSync(pointsFile, 'utf-8'));
+    }
+    return {};
+}
+
+function savePoints(points) {
+    fs.writeFileSync(pointsFile, JSON.stringify(points, null, 2));
+}
+
+module.exports = {
+    data: new SlashCommandBuilder()
+        .setName('kick')
+        .setDescription('طرد شخص من السيرفر')
+        .addUserOption(option =>
+            option
+                .setName('user')
+                .setDescription('المستخدم المراد طرده')
+                .setRequired(true)
+        )
+        .addStringOption(option =>
+            option
+                .setName('reason')
+                .setDescription('السبب')
+                .setRequired(false)
+        )
+        .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers),
+    
+    async execute(interaction) {
+        // التحقق من أن المستخدم Admin أو Owner
+        const isAdmin = interaction.member.permissions.has(PermissionFlagsBits.Administrator);
+        const isOwner = interaction.user.id === interaction.guild.ownerId;
+        
+        if (!isAdmin && !isOwner) {
+            return await interaction.reply({ 
+                content: '❌ هذا الأمر متاح فقط للمدراء أو مالك السيرفر', 
+                ephemeral: true 
+            });
+        }
+        
+        const user = interaction.options.getUser('user');
+        const reason = interaction.options.getString('reason') || 'لا يوجد سبب';
+        
+        const member = await interaction.guild.members.fetch(user.id);
+        
+        // التحقق من أن الشخص ليس مسؤول
+        if (member.permissions.has(PermissionFlagsBits.Administrator)) {
+            return await interaction.reply({ 
+                content: '❌ لا يمكنك طرد مسؤول', 
+                ephemeral: true 
+            });
+        }
+        
+        try {
+            await member.kick(reason);
+            
+            // إضافة نقاط
+            const points = getPoints();
+            const userId = interaction.user.id;
+            points[userId] = (points[userId] || 0) + 2;
+            savePoints(points);
+            
+            await interaction.reply({
+                content: `✅ تم طرد ${user.tag}\n📝 السبب: ${reason}\n⭐ حصلت على 2 نقطة`,
+                ephemeral: true
+            });
+        } catch (error) {
+            console.error(error);
+            await interaction.reply({ 
+                content: '❌ حدث خطأ في طرد المستخدم', 
+                ephemeral: true 
+            });
+        }
+    },
+};
